@@ -37,6 +37,9 @@ var (
 	// ErrRevisionOverflow indicates that the business revision would exceed math.MaxInt64.
 	ErrRevisionOverflow = errors.New("canonical identity revision overflow")
 
+	// ErrStaleSnapshot means source bindings changed while an inventory was read.
+	ErrStaleSnapshot = errors.New("canonical source bindings changed during inventory capture")
+
 	ErrPendingAPIKeyMutation   = errors.New("API-key mutation already pending for runtime")
 	ErrPendingCredentialDelete = errors.New("credential delete already pending for physical file")
 )
@@ -161,6 +164,10 @@ type Repository interface {
 	// within the given runtimeIdentity scope in a single database transaction.
 	// If any error or conflict occurs, the entire transaction is rolled back.
 	ApplyPassiveSnapshot(ctx context.Context, params ReconcileSnapshotParams) (ReconcileSnapshotResult, error)
+
+	// SourceBindingRevision captures the local source-binding version before
+	// remote inventory reads. It is independent of the Supervisor generation.
+	SourceBindingRevision(ctx context.Context) (int64, error)
 }
 
 // APIKeySnapshotItem represents an observed API key in a reconciliation snapshot.
@@ -181,6 +188,11 @@ type CredentialSnapshotItem struct {
 
 // ReconcileSnapshotParams contains the coherent fenced inventory snapshot to apply.
 type ReconcileSnapshotParams struct {
+	// ExpectedSourceBindingRevision fences remote captures against completed
+	// mutations, whose pending intents may already have been removed. Nil is
+	// reserved for callers applying locally constructed snapshots without a
+	// remote read window; reconciliation services must supply a captured value.
+	ExpectedSourceBindingRevision    *int64
 	RuntimeIdentity                  string
 	ObservedRuntimeGeneration        uint64
 	CaptureStartedAtMS               int64
