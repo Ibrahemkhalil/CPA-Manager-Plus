@@ -79,6 +79,10 @@ func (r *recordingIdentityRepo) ApplyPassiveSnapshot(ctx context.Context, params
 	return r.applyResult, r.applyErr
 }
 
+func (r *recordingIdentityRepo) SourceBindingRevision(ctx context.Context) (int64, error) {
+	return 0, nil
+}
+
 type fakeInventoryClient struct {
 	mu           sync.Mutex
 	apiKeys      []identityinventory.APIKeyObservation
@@ -161,6 +165,9 @@ func TestReconcileOnce_Success_ApplyExactlyOnce(t *testing.T) {
 	}
 	if repo.applyCalls[0].RuntimeIdentity != "runtime-1" || repo.applyCalls[0].ObservedRuntimeGeneration != 10 {
 		t.Errorf("apply params: %+v", repo.applyCalls[0])
+	}
+	if revision := repo.applyCalls[0].ExpectedSourceBindingRevision; revision == nil || *revision != 0 {
+		t.Errorf("initial binding revision must be fenced, got %v", revision)
 	}
 }
 

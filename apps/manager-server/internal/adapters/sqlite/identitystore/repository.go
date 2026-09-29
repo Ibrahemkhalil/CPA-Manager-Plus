@@ -702,6 +702,17 @@ func isConstraintConflict(err error) bool {
 		strings.Contains(lower, "constraint failed")
 }
 
+func (r *repository) SourceBindingRevision(ctx context.Context) (int64, error) {
+	var revision int64
+	if err := r.db.QueryRowContext(ctx, `select revision from gateway_source_binding_revision where id = 1`).Scan(&revision); err != nil {
+		return 0, fmt.Errorf("read source binding revision: %w", err)
+	}
+	if revision < 0 {
+		return 0, errors.New("invalid source binding revision")
+	}
+	return revision, nil
+}
+
 func (r *repository) ApplyPassiveSnapshot(ctx context.Context, params ports.ReconcileSnapshotParams) (ports.ReconcileSnapshotResult, error) {
 	if params.RuntimeIdentity == "" || strings.TrimSpace(params.RuntimeIdentity) != params.RuntimeIdentity {
 		return ports.ReconcileSnapshotResult{}, fmt.Errorf("%w: %q", identity.ErrInvalidRuntimeIdentity, params.RuntimeIdentity)
@@ -743,6 +754,18 @@ func (r *repository) ApplyPassiveSnapshot(ctx context.Context, params ports.Reco
 	}()
 
 	var result ports.ReconcileSnapshotResult
+
+	// Check in the same writer transaction as reconciliation, before resolving
+	// pending intents or applying any positive/negative inventory evidence.
+	if expected := params.ExpectedSourceBindingRevision; expected != nil {
+		var current int64
+		if err := tx.QueryRowContext(ctx, `select revision from gateway_source_binding_revision where id = 1`).Scan(&current); err != nil {
+			return ports.ReconcileSnapshotResult{}, fmt.Errorf("read snapshot binding revision: %w", err)
+		}
+		if *expected < 0 || current < 0 || current != *expected {
+			return ports.ReconcileSnapshotResult{}, ports.ErrStaleSnapshot
+		}
+	}
 
 	suppressedAPIKeys, err := resolvePassivePending(ctx, tx, params.RuntimeIdentity,
 		params.ProcessInstanceID, params.CaptureStartedAtMS, uniqueAPIKeys,

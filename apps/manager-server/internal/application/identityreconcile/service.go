@@ -84,9 +84,9 @@ func NewService(cfg Config) (*Service, error) {
 // Strictly executes:
 //  1. pre Runtime Status check (must be ready, non-empty identity, non-zero generation)
 //  2. resolve ONE immutable CPA management connection for this run
-//  3. fetch supported Credential inventory and top-level API-key inventory
+//  3. capture local source-binding revision, then fetch both inventories
 //  4. post Runtime Status check (must be ready, same identity, same generation)
-//  5. apply atomic snapshot to identity store.
+//  5. verify local binding revision and apply the snapshot atomically.
 //
 // Any failure before step 5 results in zero Canonical writes.
 func (s *Service) ReconcileOnce(ctx context.Context) (ports.ReconcileSnapshotResult, error) {
@@ -133,6 +133,13 @@ func (s *Service) ReconcileOnce(ctx context.Context) (ports.ReconcileSnapshotRes
 	captureStartedAtMS := s.timeSource()
 	if captureStartedAtMS <= 0 {
 		captureStartedAtMS = time.Now().UnixMilli()
+	}
+	// Runtime generation does not change for an API-key rotation or credential
+	// deletion. Capture local binding authority too: completion can remove the
+	// pending intent before this inventory reaches ApplyPassiveSnapshot.
+	bindingRevision, err := s.identityRepo.SourceBindingRevision(ctx)
+	if err != nil {
+		return ports.ReconcileSnapshotResult{}, fmt.Errorf("%w: capture source binding revision: %w", ErrReconciliationConflict, err)
 	}
 
 	// Step 3: Fetch both inventories using the resolved immutable connection
@@ -204,6 +211,7 @@ func (s *Service) ReconcileOnce(ctx context.Context) (ports.ReconcileSnapshotRes
 	}
 
 	snapshotParams := ports.ReconcileSnapshotParams{
+		ExpectedSourceBindingRevision:    &bindingRevision,
 		RuntimeIdentity:                  rtIdentity,
 		ObservedRuntimeGeneration:        uint64(preStatus.Generation),
 		CaptureStartedAtMS:               captureStartedAtMS,
