@@ -412,5 +412,51 @@
       }
     },
     "digest": "sha256:d943c16a2637070642867a3e0bd666147291c4194a0ae22b3df92745770fc0d3"
+  },
+  "v1.14.2": {
+    "info": {
+      "schema_version": 1,
+      "release": {
+        "version": "v1.14.2",
+        "stage": "stable",
+        "source_commit": "05ebb7f275dbe575211cb886436d4b99936c1cd9"
+      },
+      "content": {
+        "summary": {
+          "zh": "修复 CPA v8 客户端 API Key 初始读取，并恢复用量清理后的模型定价同步与账号历史降级能力。",
+          "en": "Fixes initial CPA v8 client API key loading and restores model-pricing sync plus graceful account-history degradation after usage cleanup."
+        },
+        "notes": {
+          "zh": "https://github.com/seakee/CPA-Manager-Plus/blob/v1.14.2/docs/release-notes/v1.14.2-zh.md",
+          "en": "https://github.com/seakee/CPA-Manager-Plus/blob/v1.14.2/docs/release-notes/v1.14.2-en.md"
+        }
+      },
+      "update": {
+        "breaking": false,
+        "migration_required": false,
+        "minimum_direct_upgrade_version": null,
+        "upgrade_guide_url": "https://github.com/seakee/CPA-Manager-Plus/releases/tag/v1.14.2"
+      },
+      "distribution": {
+        "docker": {
+          "image": "seakee/cpa-manager-plus",
+          "version_tag": "v1.14.2"
+        },
+        "native": {
+          "assets": [
+            "cpa-manager-plus_v1.14.2_darwin_amd64.tar.gz",
+            "cpa-manager-plus_v1.14.2_darwin_arm64.tar.gz",
+            "cpa-manager-plus_v1.14.2_linux_amd64.tar.gz",
+            "cpa-manager-plus_v1.14.2_linux_arm64.tar.gz",
+            "cpa-manager-plus_v1.14.2_windows_amd64.zip",
+            "cpa-manager-plus_v1.14.2_windows_arm64.zip"
+          ]
+        }
+      },
+      "compatibility": {
+        "minimum_cpa_version": "v7.3.4"
+      }
+    },
+    "digest": "sha256:bb9f36aac7fe6bdfed045ec6c3726c46c2e71f958541194429444bf719663565"
   }
 }
