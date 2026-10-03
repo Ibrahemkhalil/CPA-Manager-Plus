@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { IconEye, IconEyeOff, IconX } from '@/components/ui/icons';
+import { ReconnectSettingsSection } from '@/features/reconnect/components/ReconnectSettingsSection';
 import { AccountProcessingPolicySection } from './AccountProcessingPolicySection';
 import styles from '../ConfigPage.module.scss';
 
@@ -304,6 +305,10 @@ export function ManagerConfigPanel({
 
       <section className={styles.managerSection}>
         <AccountProcessingPolicySection />
+      </section>
+
+      <section className={styles.managerSection}>
+        <ReconnectSettingsSection />
       </section>
 
       <div className={styles.managerMetaGrid}>

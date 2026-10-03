@@ -1,0 +1,155 @@
+.section {
+  display: grid;
+  gap: 12px;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sectionHeaderText {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.group {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+}
+
+.groupTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.reminderGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.fieldLabel {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.summaryItem {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+}
+
+.summaryBroken {
+  color: var(--error-color, #d14343);
+  font-weight: 600;
+}
+
+.sendRow {
+  display: grid;
+  grid-template-columns: minmax(160px, 200px) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  .sendRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+.errorBanner {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--error-color, #d14343);
+  background: var(--bg-secondary);
+  font-size: 12px;
+}
+
+.tableWrap {
+  overflow-x: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.table th,
+.table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.waiting {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.waitingLong {
+  color: var(--error-color, #d14343);
+}
+
+.muted {
+  color: var(--text-secondary);
+}
+
+.empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-secondary);
+}

@@ -1,0 +1,88 @@
+.page {
+  display: flex;
+  justify-content: center;
+  padding: 48px 16px;
+}
+
+.card {
+  width: 100%;
+  max-width: 520px;
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--bg-primary);
+}
+
+.title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.text {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.steps {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: grid;
+  gap: 8px;
+}
+
+.stepTitle {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.countdown {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  font-size: 13px;
+}
+
+.countdownTime {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.urgent {
+  color: var(--warning-color, #b7791f);
+}
+
+.expired {
+  color: var(--error-color, #d14343);
+}
+
+.code {
+  font-family: var(--font-mono, monospace);
+  font-weight: 700;
+}
+
+.error {
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--error-color, #d14343);
+  background: var(--bg-secondary);
+  font-size: 13px;
+}
+
+.done {
+  text-align: center;
+}
