@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useMemo, useState, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { IconRefreshCw } from '@/components/ui/icons';
@@ -15,21 +15,48 @@ import {
   type ReconnectSummary,
 } from '@/services/api/reconnect';
 import { useAuthStore, useNotificationStore } from '@/stores';
-import { providerLabel, timeZoneOptions } from '../model/reconnectFormat';
+import { panelUrlFromLocation, providerLabel, timeZoneOptions } from '../model/reconnectFormat';
 import { ReconnectRequestsTable } from './ReconnectRequestsTable';
 import styles from './ReconnectSettingsSection.module.scss';
 
 const toInt = (value: string) => Number.parseInt(value, 10) || 0;
+
+// Server-enforced ranges, checked before saving so the field shows the problem.
+const RANGES = {
+  checkIntervalMinutes: [1, 60],
+  linkTtlHours: [1, 72],
+  followupHours: [1, 6],
+} as const;
+type RangedField = keyof typeof RANGES;
+
+const inRange = (field: RangedField, value: number) =>
+  Number.isInteger(value) && value >= RANGES[field][0] && value <= RANGES[field][1];
+
+/** Lets the configuration page save and reload this section from its floating bar. */
+export type ReconnectSettingsHandle = {
+  save: () => Promise<boolean>;
+  reload: () => Promise<void>;
+};
+
+export type ReconnectSettingsPending = { dirty: boolean };
+
+type ReconnectSettingsSectionProps = {
+  handleRef?: Ref<ReconnectSettingsHandle>;
+  onPendingChange?: (pending: ReconnectSettingsPending) => void;
+};
 
 /**
  * Self-service reconnect settings (Manager Server). When a subscription login
  * in CPA can only recover through a new OAuth login, its owner is messaged a
  * one-time link through the notification webhook and reconnects it.
  */
-export function ReconnectSettingsSection() {
+export function ReconnectSettingsSection({
+  handleRef,
+  onPendingChange,
+}: ReconnectSettingsSectionProps) {
   const { t } = useTranslation();
   const managementKey = useAuthStore((state) => state.managementKey);
-  const { showNotification } = useNotificationStore();
+  const { showNotification, showConfirmation } = useNotificationStore();
   const base = usePanelFeatureAvailability().managerServiceBase;
 
   const [form, setForm] = useState<ReconnectSettings | null>(null);
@@ -37,6 +64,7 @@ export function ReconnectSettingsSection() {
   const [webhookDraft, setWebhookDraft] = useState('');
   const [summary, setSummary] = useState<ReconnectSummary[]>([]);
   const [loadError, setLoadError] = useState('');
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
   const [testProvider, setTestProvider] = useState<ReconnectProvider>('claude');
@@ -46,27 +74,94 @@ export function ReconnectSettingsSection() {
 
   const load = useCallback(async () => {
     if (!base || !managementKey) return;
+    setLoading(true);
     setLoadError('');
     try {
-      const settings = await reconnectApi.getSettings(base, managementKey);
+      const loaded = await reconnectApi.getSettings(base, managementKey);
+      // First time: suggest the address this panel is open at. It is saved with the next save.
+      const settings = loaded.publicUrl
+        ? loaded
+        : { ...loaded, publicUrl: panelUrlFromLocation(window.location) };
       setForm(settings);
       setSaved(settings);
       setWebhookDraft('');
       setSummary(await reconnectApi.getSummary(base, managementKey).catch(() => []));
     } catch (error) {
-      setLoadError(reconnectErrorMessage(error));
+      const message = reconnectErrorMessage(error);
+      setLoadError(message);
+      showNotification(`${t('notification.load_failed')}: ${message}`, 'error');
+    } finally {
+      setLoading(false);
     }
-  }, [base, managementKey]);
+  }, [base, managementKey, showNotification, t]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  const dirty =
+    form !== null &&
+    saved !== null &&
+    (webhookDraft.trim() !== '' || JSON.stringify(form) !== JSON.stringify(saved));
+  const busy = loading || saving;
+
+  const fieldLabel = (field: RangedField) => {
+    switch (field) {
+      case 'checkIntervalMinutes':
+        return t('reconnect.check_interval', { defaultValue: 'Check interval (minutes)' });
+      case 'linkTtlHours':
+        return t('reconnect.link_ttl', { defaultValue: 'Link lifetime (hours)' });
+      case 'followupHours':
+        return `${t('reconnect.reminders', { defaultValue: 'Reminders' })} · ${t(
+          'reconnect.followup_every',
+          { defaultValue: 'Every (hours)' }
+        )}`;
+    }
+  };
+
+  // Like the other Manager Server number fields: checked on save and reported in a toast.
+  const rangeProblem = () => {
+    if (!form?.enabled) return '';
+    const field = (Object.keys(RANGES) as RangedField[]).find((key) => !inRange(key, form[key]));
+    return field
+      ? t('reconnect.range_invalid', {
+          defaultValue: '{{label}} must be an integer from {{min}} to {{max}}',
+          label: fieldLabel(field),
+          min: RANGES[field][0],
+          max: RANGES[field][1],
+        })
+      : '';
+  };
+
+  // Like the configuration page: refreshing asks before dropping unsaved edits.
+  const refresh = () => {
+    if (!dirty) {
+      void load();
+      return;
+    }
+    showConfirmation({
+      title: t('common.unsaved_changes_title'),
+      message: t('config_management.reload_confirm_message'),
+      confirmText: t('config_management.reload'),
+      cancelText: t('common.cancel'),
+      variant: 'danger',
+      onConfirm: async () => {
+        await load();
+      },
+    });
+  };
+
   const update = <K extends keyof ReconnectSettings>(key: K, value: ReconnectSettings[K]) =>
     setForm((current) => (current ? { ...current, [key]: value } : current));
 
-  const save = async () => {
-    if (!form || !base) return;
+  const save = async (): Promise<boolean> => {
+    if (!dirty) return true;
+    if (!form || !base || saving) return false;
+    const problem = rangeProblem();
+    if (problem) {
+      showNotification(`${t('notification.save_failed')}: ${problem}`, 'error');
+      return false;
+    }
     setSaving(true);
     try {
       const next = await reconnectApi.updateSettings(base, managementKey, {
@@ -80,12 +175,25 @@ export function ReconnectSettingsSection() {
         t('reconnect.saved', { defaultValue: 'Self-service reconnect settings saved' }),
         'success'
       );
+      return true;
     } catch (error) {
-      showNotification(reconnectErrorMessage(error), 'error');
+      showNotification(
+        `${t('notification.save_failed')}: ${reconnectErrorMessage(error)}`,
+        'error'
+      );
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  useImperativeHandle(handleRef, () => ({ save, reload: load }));
+
+  useEffect(() => {
+    onPendingChange?.({ dirty });
+  }, [dirty, onPendingChange]);
+
+  useEffect(() => () => onPendingChange?.({ dirty: false }), [onPendingChange]);
 
   const sendTest = async () => {
     if (!base) return;
@@ -127,7 +235,10 @@ export function ReconnectSettingsSection() {
         setTableVersion((v) => v + 1);
       }
     } catch (error) {
-      showNotification(reconnectErrorMessage(error), 'error');
+      showNotification(
+        `${t('reconnect.send_failed', { defaultValue: 'Send failed' })}: ${reconnectErrorMessage(error)}`,
+        'error'
+      );
     } finally {
       setSending(false);
     }
@@ -144,23 +255,23 @@ export function ReconnectSettingsSection() {
       <div className={styles.sectionHeader}>
         <div className={styles.sectionHeaderText}>
           <h3 className={styles.sectionTitle}>
-            {t('reconnect.section_title', { defaultValue: 'Self-service reconnect' })}
+            {t('reconnect.section_title', { defaultValue: 'Self-Service Reconnect' })}
           </h3>
-          <p className={styles.hint}>
+          <p className={styles.sectionHint}>
             {t('reconnect.section_hint', {
               defaultValue:
                 'When a Claude, Codex, Antigravity, xAI or Muse login can only recover through a new sign-in, its owner (matched by the login email) gets a one-time link and reconnects it themselves.',
             })}
           </p>
         </div>
-        <Button variant="ghost" size="sm" onClick={() => void load()} disabled={saving}>
+        <Button variant="ghost" size="sm" onClick={refresh} disabled={busy || sending}>
           <IconRefreshCw size={14} />
-          {t('reconnect.refresh', { defaultValue: 'Refresh' })}
+          {t('common.refresh')}
         </Button>
       </div>
 
       {loadError ? (
-        <div className={styles.errorBanner} role="alert">
+        <div className={styles.errorState} role="alert">
           <strong>{t('reconnect.load_failed', { defaultValue: 'Load failed' })}</strong>
           <span>{loadError}</span>
         </div>
@@ -171,6 +282,7 @@ export function ReconnectSettingsSection() {
           <ToggleSwitch
             checked={form.enabled}
             onChange={(value) => update('enabled', value)}
+            disabled={busy}
             label={t('reconnect.enabled', { defaultValue: 'Enable self-service reconnect' })}
           />
 
@@ -209,6 +321,7 @@ export function ReconnectSettingsSection() {
                   placeholder="https://cpamp.example.com"
                   value={form.publicUrl}
                   onChange={(event) => update('publicUrl', event.target.value)}
+                  disabled={busy}
                 />
                 <Input
                   type="password"
@@ -228,6 +341,12 @@ export function ReconnectSettingsSection() {
                   placeholder="https://"
                   value={webhookDraft}
                   onChange={(event) => setWebhookDraft(event.target.value)}
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  disabled={busy}
                 />
                 <Input
                   label={t('reconnect.sender_name', { defaultValue: 'Sender name' })}
@@ -236,6 +355,7 @@ export function ReconnectSettingsSection() {
                   })}
                   value={form.senderName}
                   onChange={(event) => update('senderName', event.target.value)}
+                  disabled={busy}
                 />
                 <Input
                   type="number"
@@ -250,6 +370,7 @@ export function ReconnectSettingsSection() {
                   })}
                   value={String(form.checkIntervalMinutes)}
                   onChange={(event) => update('checkIntervalMinutes', toInt(event.target.value))}
+                  disabled={busy}
                 />
                 <Input
                   type="number"
@@ -261,6 +382,7 @@ export function ReconnectSettingsSection() {
                   })}
                   value={String(form.linkTtlHours)}
                   onChange={(event) => update('linkTtlHours', toInt(event.target.value))}
+                  disabled={busy}
                 />
               </div>
 
@@ -268,7 +390,7 @@ export function ReconnectSettingsSection() {
                 <h4 className={styles.groupTitle}>
                   {t('reconnect.reminders', { defaultValue: 'Reminders' })}
                 </h4>
-                <p className={styles.hint}>
+                <p className={styles.sectionHint}>
                   {t('reconnect.reminders_hint', {
                     defaultValue:
                       'Owners who have not reconnected get a reminder with a fresh link every 1–6 hours, only between these hours.',
@@ -282,47 +404,57 @@ export function ReconnectSettingsSection() {
                     label={t('reconnect.followup_every', { defaultValue: 'Every (hours)' })}
                     value={String(form.followupHours)}
                     onChange={(event) => update('followupHours', toInt(event.target.value))}
+                    disabled={busy}
                   />
-                  <label className={styles.fieldLabel}>
-                    {t('reconnect.from_hour', { defaultValue: 'From' })}
+                  <div className={styles.field}>
+                    <span className={styles.fieldLabel}>
+                      {t('reconnect.from_hour', { defaultValue: 'From' })}
+                    </span>
                     <Select
                       value={String(form.followupStartHour)}
                       options={hourOptions(0, 23)}
                       onChange={(value) => update('followupStartHour', toInt(value))}
+                      triggerClassName={styles.selectTrigger}
+                      disabled={busy}
+                      ariaLabel={t('reconnect.from_hour', { defaultValue: 'From' })}
                     />
-                  </label>
-                  <label className={styles.fieldLabel}>
-                    {t('reconnect.until_hour', { defaultValue: 'Until' })}
+                  </div>
+                  <div className={styles.field}>
+                    <span className={styles.fieldLabel}>
+                      {t('reconnect.until_hour', { defaultValue: 'Until' })}
+                    </span>
                     <Select
                       value={String(form.followupEndHour)}
                       options={hourOptions(1, 24)}
                       onChange={(value) => update('followupEndHour', toInt(value))}
+                      triggerClassName={styles.selectTrigger}
+                      disabled={busy}
+                      ariaLabel={t('reconnect.until_hour', { defaultValue: 'Until' })}
                     />
-                  </label>
-                  <label className={styles.fieldLabel}>
-                    {t('reconnect.time_zone', { defaultValue: 'Time zone' })}
+                  </div>
+                  <div className={styles.field}>
+                    <span className={styles.fieldLabel}>
+                      {t('reconnect.time_zone', { defaultValue: 'Time zone' })}
+                    </span>
                     <Select
                       value={form.followupTimeZone}
                       options={zones.map((zone) => ({ value: zone, label: zone }))}
                       onChange={(value) => update('followupTimeZone', value)}
+                      triggerClassName={styles.selectTrigger}
+                      disabled={busy}
+                      ariaLabel={t('reconnect.time_zone', { defaultValue: 'Time zone' })}
                     />
-                  </label>
+                  </div>
                 </div>
               </div>
             </>
           ) : null}
 
-          <div className={styles.actions}>
-            <Button onClick={() => void save()} loading={saving}>
-              {t('reconnect.save', { defaultValue: 'Save' })}
-            </Button>
-          </div>
-
           {saved?.enabled ? (
             <>
               <div className={styles.group}>
                 <h4 className={styles.groupTitle}>
-                  {t('reconnect.send_title', { defaultValue: 'Send a link' })}
+                  {t('reconnect.send_title', { defaultValue: 'Send a Link' })}
                 </h4>
                 <div className={styles.sendRow}>
                   <Select
@@ -332,6 +464,8 @@ export function ReconnectSettingsSection() {
                       label: providerLabel(provider),
                     }))}
                     onChange={(value) => setTestProvider(value as ReconnectProvider)}
+                    triggerClassName={styles.selectTrigger}
+                    disabled={sending}
                     ariaLabel={t('reconnect.login_type', { defaultValue: 'Login type' })}
                   />
                   <Input
@@ -340,12 +474,21 @@ export function ReconnectSettingsSection() {
                     aria-label={t('reconnect.email', { defaultValue: 'Email' })}
                     value={testEmail}
                     onChange={(event) => setTestEmail(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !sending) void sendTest();
+                    }}
+                    disabled={sending}
                   />
-                  <Button variant="secondary" onClick={() => void sendTest()} loading={sending}>
+                  <Button
+                    variant="secondary"
+                    onClick={() => void sendTest()}
+                    loading={sending}
+                    disabled={!testEmail.trim()}
+                  >
                     {t('reconnect.send', { defaultValue: 'Send' })}
                   </Button>
                 </div>
-                <p className={styles.hint}>
+                <p className={styles.sectionHint}>
                   {t('reconnect.send_hint', {
                     defaultValue:
                       'Working login: a test link. No login: an invitation. Broken login: a reconnect request, or nothing if they were already notified.',
