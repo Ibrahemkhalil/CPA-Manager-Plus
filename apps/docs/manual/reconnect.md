@@ -17,7 +17,10 @@ CPA 中的部分 OAuth 登录只能通过重新登录恢复，例如 refresh tok
 4. 所有者无需登录 CPAMP 即可打开链接：
    - **Claude、Codex、Antigravity**：点击“连接”，在提供商网站登录，然后粘贴跳转后的 `localhost` 页面地址。该页面无法打开，这是正常的。
    - **xAI、Muse**：在提供商网站批准请求，页面会自动检测授权。
-5. 如果登录的账号与要求的不一致，新登录会被移除并提示重试。成功后，原先失效的凭证会被删除。
+5. 成功后，原先失效的凭证会被删除。如果登录的账号与要求的不一致，所有者自己的链接保持有效，并提示其使用正确的账号重试。另一个账号的登录仍然有用，因此会被保留：
+   - 如果该账号正在等待重连，其请求会以 **已重连** 关闭，原先失效的凭证会被删除；若之前已通知过其所有者，会发送无需处理的通知。
+   - 如果该账号尚无登录，会加入共享池，其未处理的邀请随之关闭，并向其所有者发送欢迎消息。
+   - 链接所有者看到的错误信息末尾会说明发生了哪种情况。
 6. 如果所有者操作前登录已自行恢复，CPAMP 会发送一条无需处理的通知。
 
 ## 设置
@@ -49,7 +52,7 @@ CPA 中的部分 OAuth 登录只能通过重新登录恢复，例如 refresh tok
 }
 ```
 
-`sendTo` 和 `body` 足以对接 Microsoft Teams Power Automate 流程或 Slack 工作流，其余字段可用于自行路由或排版。`type` 取值为 `reconnect`、`reminder`、`all_clear`、`test` 或 `invite`。
+`sendTo` 和 `body` 足以对接 Microsoft Teams Power Automate 流程或 Slack 工作流，其余字段可用于自行路由或排版。`type` 取值为 `reconnect`、`reconnect_followup`（提醒）、`reconnect_resolved`（无需处理通知）、`reconnect_test`、`reconnect_invite` 或 `reconnect_welcome`（通过他人链接加入的登录）。
 
 ## 手动发送链接
 

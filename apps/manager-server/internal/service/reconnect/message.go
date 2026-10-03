@@ -21,6 +21,9 @@ const (
 	typeResolved  = "reconnect_resolved"
 	typeTest      = "reconnect_test"
 	typeInvite    = "reconnect_invite"
+	// typeWelcome: someone's new login was added from another person's link
+	// (they signed in with this account by mistake).
+	typeWelcome = "reconnect_welcome"
 )
 
 // webhookPayload is POSTed to the notification webhook. SendTo and Body are
@@ -80,6 +83,9 @@ func messageBody(sender string, p webhookPayload) string {
 	case typeResolved:
 		return "🤖 | ✅ <b>Your " + name + " login is working again</b><br><br>Your " + name +
 			" account is connected to " + site + " again, so <b>no action is needed</b>. You can ignore the earlier reconnect links."
+	case typeWelcome:
+		return "🤖 | 🎉 <b>Welcome aboard: your " + name + " account is connected to " + site + "</b><br><br>Your " + name +
+			" subscription is now connected to " + site + " and <b>contributes to the team's shared capacity</b>. Nothing else is needed — thank you!"
 	case typeTest:
 		return "🤖 | 🧪 <b>Test: reconnect your " + name + " account to " + site + "</b><br><br>This is a test message from your " +
 			site + " admin. Your " + name + " login is working, so nothing is required. You can use the link to reconnect it, or ignore this message." +
@@ -95,7 +101,7 @@ func messageBody(sender string, p webhookPayload) string {
 	if p.Followup > 0 {
 		headline = fmt.Sprintf("🤖 | 🔴 <b>Reminder #%d: your %s login is still disconnected</b>", p.Followup, name)
 		impact = "Your " + name + " account is still disconnected from " + site + ", so <b>your usage keeps landing on your teammates' accounts</b>. " +
-			"Earlier reconnect links no longer work; use the one below."
+			"Earlier reconnect links no longer work — use the one below."
 	}
 	return headline + "<br><br>" + impact + "<br><br>👉 <b><a href=\"" + link + "\">Reconnect " + name + " now</a></b> (takes about 1 minute)" + footer
 }

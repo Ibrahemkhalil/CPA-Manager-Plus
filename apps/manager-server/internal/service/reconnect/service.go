@@ -63,13 +63,19 @@ var (
 // WrongAccountError: the owner signed in to a different account.
 type WrongAccountError struct {
 	Site, Expected, Got string
+	// Note says what the sign-in did for the other account, if anything.
+	Note string
 }
 
 func (e *WrongAccountError) Error() string {
 	if e.Got == "" {
 		return fmt.Sprintf("you signed in with a different %s account; sign in as %s and try again", e.Site, e.Expected)
 	}
-	return fmt.Sprintf("you signed in as %s, but this link is for %s; sign out of %s, sign in as %s and click Connect again", e.Got, e.Expected, e.Site, e.Expected)
+	msg := fmt.Sprintf("you signed in as %s, but this link is for %s; sign out of %s, sign in as %s and click Connect again.", e.Got, e.Expected, e.Site, e.Expected)
+	if e.Note != "" {
+		msg += " " + e.Note
+	}
+	return msg
 }
 
 // SetupResolver yields the CPA base URL and management key.
@@ -400,7 +406,7 @@ func (s *Service) Submit(ctx context.Context, token, callbackURL string) error {
 	if s.now().After(attemptDeadline(req)) {
 		return ErrAttemptExpired
 	}
-	_, client, err := s.active(ctx)
+	settings, client, err := s.active(ctx)
 	if err != nil {
 		return err
 	}
@@ -414,7 +420,7 @@ func (s *Service) Submit(ctx context.Context, token, callbackURL string) error {
 	if err := s.waitForLogin(ctx, client, req.OAuthState); err != nil {
 		return err
 	}
-	return s.finish(ctx, client, req)
+	return s.finish(ctx, settings, client, req)
 }
 
 func (s *Service) waitForLogin(ctx context.Context, client *cpaClient, state string) error {
@@ -460,7 +466,7 @@ func (s *Service) Poll(ctx context.Context, token string) (string, error) {
 	if s.now().After(attemptDeadline(req)) {
 		return "", ErrAttemptExpired
 	}
-	_, client, err := s.active(ctx)
+	settings, client, err := s.active(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -477,13 +483,13 @@ func (s *Service) Poll(ctx context.Context, token string) (string, error) {
 		}
 		return "", fmt.Errorf("login failed: %s; click Connect to try again", st.Error)
 	}
-	if err := s.finish(ctx, client, req); err != nil {
+	if err := s.finish(ctx, settings, client, req); err != nil {
 		return "", err
 	}
 	return "ok", nil
 }
 
-func (s *Service) finish(ctx context.Context, client *cpaClient, req *model.ReconnectRequest) error {
+func (s *Service) finish(ctx context.Context, settings model.ReconnectSettings, client *cpaClient, req *model.ReconnectRequest) error {
 	files, err := client.listAuthFiles(ctx)
 	if err != nil {
 		return err
@@ -498,32 +504,117 @@ func (s *Service) finish(ctx context.Context, client *cpaClient, req *model.Reco
 	// Saved during this attempt; allow clock skew between hosts.
 	since := time.UnixMilli(req.OAuthStartedMS).Add(-time.Minute)
 
-	refreshed := map[string]bool{}
+	// Logins saved during this attempt, by owner email.
+	refreshed := map[string]map[string]bool{}
 	other := ""
 	for _, f := range files {
-		if f.Provider != p.ID || f.UpdatedAt.Before(since) {
+		if f.Provider != p.ID || f.UpdatedAt.Before(since) || f.Email == "" {
 			continue
 		}
-		if strings.EqualFold(f.Email, req.Email) {
-			refreshed[f.Name] = true
-			continue
+		key := strings.ToLower(f.Email)
+		if refreshed[key] == nil {
+			refreshed[key] = map[string]bool{}
 		}
-		if !knownSet[f.Name] {
-			// A brand-new credential for another account was created by this
-			// attempt (wrong account signed in): remove it.
+		refreshed[key][f.Name] = true
+		if key != strings.ToLower(req.Email) && (other == "" || !knownSet[f.Name]) {
 			other = f.Email
-			if err := client.deleteAuthFile(ctx, f.Name); err != nil {
-				log.Printf("reconnect: could not remove wrong-account credential %s: %v", f.Name, err)
+		}
+	}
+
+	nowMS := s.now().UnixMilli()
+	// Signing in with another account still gives the pool a working
+	// subscription: keep it for that account's owner.
+	outcomes := map[string]string{}
+	for email, names := range refreshed {
+		if email == strings.ToLower(req.Email) {
+			continue
+		}
+		outcomes[email] = s.settleOther(ctx, settings, client, files, knownSet, p, email, names, nowMS)
+		log.Printf("reconnect: %s login for %s %s from %s's link", p.Name, email, outcomes[email], req.Email)
+	}
+
+	own := refreshed[strings.ToLower(req.Email)]
+	if len(own) == 0 {
+		return &WrongAccountError{Site: p.Name, Expected: req.Email, Got: other,
+			Note: otherLoginNote(outcomes[strings.ToLower(other)], p.Name, other)}
+	}
+	return s.settle(ctx, client, files, p, req.Email, own, nowMS)
+}
+
+// What signing in with another account did for that account.
+const (
+	otherLoginRefreshed   = "refreshed"
+	otherLoginReconnected = "reconnected"
+	otherLoginAdded       = "added"
+)
+
+// settleOther keeps a login saved from someone else's link. A brand-new
+// login gets a welcome message; one that was waiting to be reconnected
+// closes like a normal reconnect, and its owner gets the all-clear if they
+// had been messaged about it.
+func (s *Service) settleOther(ctx context.Context, settings model.ReconnectSettings, client *cpaClient, files []authFile, knownSet map[string]bool, p provider, email string, names map[string]bool, nowMS int64) string {
+	isNew, wasBroken := true, false
+	for _, f := range files {
+		if f.Provider != p.ID || !strings.EqualFold(f.Email, email) {
+			continue
+		}
+		if knownSet[f.Name] || !names[f.Name] {
+			isNew = false
+		}
+		if !names[f.Name] {
+			if broken, _ := needsReauth(f); broken {
+				wasBroken = true
 			}
 		}
 	}
-	if len(refreshed) == 0 {
-		return &WrongAccountError{Site: p.Name, Expected: req.Email, Got: other}
+	notified := false
+	if open, err := s.repo.GetOpen(ctx, p.ID, email); err == nil && open != nil &&
+		open.Purpose != model.ReconnectPurposeTest && open.Purpose != model.ReconnectPurposeInvite {
+		notified = true
 	}
-	// A new login can be saved under a different file name than the broken
-	// one; the old one can never recover, so drop it.
+	// Closes any open request, an invitation included, as reconnected.
+	if err := s.settle(ctx, client, files, p, email, names, nowMS); err != nil {
+		log.Printf("reconnect: settling %s (%s): %v", email, p.Name, err)
+	}
+	switch {
+	case isNew:
+		if err := s.send(ctx, settings, webhookPayload{Type: typeWelcome, Provider: p.ID, Email: email}); err != nil {
+			log.Printf("reconnect: welcome to %s (%s): %v", email, p.Name, err)
+		}
+		return otherLoginAdded
+	case notified || wasBroken:
+		if notified {
+			if err := s.sendResolved(ctx, settings, p.ID, email); err != nil {
+				log.Printf("reconnect: all-clear to %s (%s): %v", email, p.Name, err)
+			}
+		}
+		return otherLoginReconnected
+	default:
+		return otherLoginRefreshed
+	}
+}
+
+// otherLoginNote tells the link owner what their sign-in did for the
+// account they used by mistake.
+func otherLoginNote(outcome, providerName, email string) string {
+	switch outcome {
+	case otherLoginReconnected:
+		return fmt.Sprintf("That sign-in was not wasted: %s's %s login also needed reconnecting, so we reconnected it.", email, providerName)
+	case otherLoginAdded:
+		return fmt.Sprintf("That sign-in was not wasted: %s's %s login was added to the shared pool.", email, providerName)
+	case otherLoginRefreshed:
+		return fmt.Sprintf("%s's %s login was already connected and stays as it is.", email, providerName)
+	}
+	return ""
+}
+
+// settle finishes a reconnect for one owner: a new login can be saved under a
+// different file name than the broken one, and the old one can never
+// recover, so it is dropped; then the owner's open requests close as
+// reconnected.
+func (s *Service) settle(ctx context.Context, client *cpaClient, files []authFile, p provider, email string, refreshed map[string]bool, nowMS int64) error {
 	for _, f := range files {
-		if f.Provider != p.ID || !strings.EqualFold(f.Email, req.Email) || refreshed[f.Name] {
+		if f.Provider != p.ID || !strings.EqualFold(f.Email, email) || refreshed[f.Name] {
 			continue
 		}
 		if broken, _ := needsReauth(f); broken {
@@ -532,7 +623,7 @@ func (s *Service) finish(ctx context.Context, client *cpaClient, req *model.Reco
 			}
 		}
 	}
-	return s.repo.ClosePending(ctx, p.ID, req.Email, model.ReconnectStatusCompleted, s.now().UnixMilli())
+	return s.repo.ClosePending(ctx, p.ID, email, model.ReconnectStatusCompleted, nowMS)
 }
 
 // AdminSendResult is the outcome of an admin "send test link".

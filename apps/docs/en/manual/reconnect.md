@@ -17,7 +17,10 @@ This feature requires Full Mode (Manager Server). It is off by default.
 4. The owner opens the link without signing in to CPAMP:
    - **Claude, Codex, Antigravity**: they click Connect, sign in on the provider's site, then paste the address of the `localhost` page they land on. That page does not load; this is expected.
    - **xAI, Muse**: they approve the request on the provider's site. The page detects the approval by itself.
-5. If they signed in with a different account than the one requested, the new login is removed and they are asked to retry. On success, the previous broken credential is dropped.
+5. On success, the previous broken credential is dropped. If they signed in with a different account than the one requested, their own link stays open and they are asked to retry with the right account. The other account's login is still useful, so it is kept:
+   - If that account was waiting to be reconnected, its request closes as **Reconnected**, its old broken credential is dropped, and its owner gets the all-clear if they had already been messaged.
+   - If that account had no login yet, it joins the pool, any open invitation for it closes, and its owner gets a welcome message.
+   - The link owner's error message ends with a note saying which of these happened.
 6. If the login recovers by itself before the owner acts, CPAMP sends an all-clear message so they know nothing is required.
 
 ## Settings
@@ -49,7 +52,7 @@ Each message is one `POST` with a JSON body:
 }
 ```
 
-`sendTo` and `body` are enough for a Microsoft Teams Power Automate flow or a Slack workflow. The other fields let you route or format messages yourself. `type` is one of `reconnect`, `reminder`, `all_clear`, `test`, or `invite`.
+`sendTo` and `body` are enough for a Microsoft Teams Power Automate flow or a Slack workflow. The other fields let you route or format messages yourself. `type` is one of `reconnect`, `reconnect_followup` (reminder), `reconnect_resolved` (all-clear), `reconnect_test`, `reconnect_invite`, or `reconnect_welcome` (a login added from someone else's link).
 
 ## Sending A Link Manually
 

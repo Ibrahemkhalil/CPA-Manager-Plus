@@ -424,7 +424,7 @@ func TestAttemptValidation(t *testing.T) {
 	}
 }
 
-func TestWrongAccountRemovedAndReplacedCredentialDropped(t *testing.T) {
+func TestWrongAccountKeptAndReplacedCredentialDropped(t *testing.T) {
 	fx := newFixture(t)
 	ctx := context.Background()
 	fx.cpa.set(broken("claude-a.json", "claude", "a@example.com"))
@@ -435,11 +435,18 @@ func TestWrongAccountRemovedAndReplacedCredentialDropped(t *testing.T) {
 	token := fx.hook.lastToken(t)
 	_, _ = fx.svc.Start(ctx, token)
 	var wrong *WrongAccountError
-	if err := fx.svc.Submit(ctx, token, callbackURL(fx.cpa.state)); !errors.As(err, &wrong) || wrong.Got != "other@example.com" {
+	err := fx.svc.Submit(ctx, token, callbackURL(fx.cpa.state))
+	if !errors.As(err, &wrong) || wrong.Got != "other@example.com" {
 		t.Fatalf("got %v", err)
 	}
-	if len(fx.cpa.deleted) != 1 || fx.cpa.deleted[0] != "claude-other.json" {
-		t.Fatalf("deleted %v", fx.cpa.deleted)
+	if !strings.Contains(err.Error(), "other@example.com's Claude login was added to the shared pool") {
+		t.Fatalf("note missing: %v", err)
+	}
+	if len(fx.cpa.deleted) != 0 {
+		t.Fatalf("a new working login joins the pool, deleted %v", fx.cpa.deleted)
+	}
+	if last := fx.hook.last(t); last.Type != typeWelcome || last.SendTo != "other@example.com" {
+		t.Fatalf("welcome not sent: %+v", last)
 	}
 
 	// Second try saves the right account under a new name: the dead file goes.
@@ -452,6 +459,68 @@ func TestWrongAccountRemovedAndReplacedCredentialDropped(t *testing.T) {
 	}
 	if fx.cpa.deleted[len(fx.cpa.deleted)-1] != "claude-a.json" {
 		t.Fatalf("replaced credential not removed: %v", fx.cpa.deleted)
+	}
+}
+
+func TestWrongAccountReconnectsThatOwner(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	fx.cpa.set(broken("claude-b.json", "claude", "b@example.com"))
+	fx.detect(ctx)
+	tokenB := fx.hook.lastToken(t)
+	fx.cpa.set(broken("claude-a.json", "claude", "a@example.com"), broken("claude-b.json", "claude", "b@example.com"))
+	fx.detect(ctx)
+	tokenA := fx.hook.lastToken(t)
+	sent := fx.hook.count()
+
+	// a's link, but b signs in; CPA saves it under a new file name.
+	fx.cpa.onCallback = func(f *fakeCPA) {
+		f.files = append(f.files, credential("claude-9f8e-b.json", "claude", "b@example.com", "", fx.clock))
+	}
+	_, _ = fx.svc.Start(ctx, tokenA)
+	var wrong *WrongAccountError
+	err := fx.svc.Submit(ctx, tokenA, callbackURL(fx.cpa.state))
+	if !errors.As(err, &wrong) || !strings.Contains(err.Error(), "b@example.com's Claude login also needed reconnecting, so we reconnected it") {
+		t.Fatalf("got %v", err)
+	}
+	if len(fx.cpa.deleted) != 1 || fx.cpa.deleted[0] != "claude-b.json" {
+		t.Fatalf("b's broken file should be replaced, deleted %v", fx.cpa.deleted)
+	}
+	if _, err := fx.svc.Lookup(ctx, tokenB); !errors.Is(err, ErrClosed) {
+		t.Fatalf("b's request should close, got %v", err)
+	}
+	if _, err := fx.svc.Lookup(ctx, tokenA); err != nil {
+		t.Fatalf("a still needs to reconnect: %v", err)
+	}
+	if fx.hook.count() != sent+1 || fx.hook.last(t).Type != typeResolved || fx.hook.last(t).SendTo != "b@example.com" {
+		t.Fatalf("b should get the all-clear: %d %+v", fx.hook.count()-sent, fx.hook.last(t))
+	}
+}
+
+func TestWrongAccountClosesThatOwnersInvitation(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	if res, err := fx.svc.AdminSend(ctx, ProviderClaude, "c@example.com"); err != nil || res.Purpose != model.ReconnectPurposeInvite {
+		t.Fatalf("%+v %v", res, err)
+	}
+	tokenC := fx.hook.lastToken(t)
+	fx.cpa.set(broken("claude-a.json", "claude", "a@example.com"))
+	fx.detect(ctx)
+	tokenA := fx.hook.lastToken(t)
+
+	fx.cpa.onCallback = func(f *fakeCPA) {
+		f.files = append(f.files, credential("claude-c.json", "claude", "c@example.com", "", fx.clock))
+	}
+	_, _ = fx.svc.Start(ctx, tokenA)
+	var wrong *WrongAccountError
+	if err := fx.svc.Submit(ctx, tokenA, callbackURL(fx.cpa.state)); !errors.As(err, &wrong) {
+		t.Fatalf("got %v", err)
+	}
+	if _, err := fx.svc.Lookup(ctx, tokenC); !errors.Is(err, ErrClosed) {
+		t.Fatalf("c's invitation should close, got %v", err)
+	}
+	if last := fx.hook.last(t); last.Type != typeWelcome || last.SendTo != "c@example.com" {
+		t.Fatalf("welcome not sent: %+v", last)
 	}
 }
 
