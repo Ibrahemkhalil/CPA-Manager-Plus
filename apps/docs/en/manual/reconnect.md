@@ -22,9 +22,9 @@ This feature requires Full Mode (Manager Server). It is off by default.
 
 ## Settings
 
-Open **Configuration → Manager Server** and find **Self-service reconnect**.
+Open **Configuration → Manager Server** and find **Self-Service Reconnect**. Changes are saved with the page's floating **Save** button, together with the other Manager Server settings.
 
-- **Public panel URL**: where people open this panel. Required before enabling.
+- **Public panel URL**: where people open this panel. Required before enabling. The first time, it is filled in with the address you opened the panel at.
 - **Notification webhook URL**: must use `https`. It is stored encrypted and never returned by the API. Leave it blank to keep the saved value.
 - **Sender name**: shown in messages.
 - **Check interval**: 1–60 minutes.
@@ -61,7 +61,7 @@ Under **Send a link**, pick a login type and an email:
 
 ## Requests Table
 
-The table lists requests from the last 30 days with their status:
+The table lists requests from the last 30 days with their status, 20 per page by default:
 
 - **Waiting**: the owner has not reconnected yet.
 - **Reconnected**: the owner completed the link.
