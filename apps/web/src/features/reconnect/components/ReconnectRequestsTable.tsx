@@ -9,12 +9,20 @@ import {
   type ReconnectOutage,
   type ReconnectStatus,
 } from '@/services/api/reconnect';
+import { PaginationControls } from '@/features/monitoring/components/MonitoringShared';
 import { formatInZone, formatWaiting, providerLabel } from '../model/reconnectFormat';
 import styles from './ReconnectSettingsSection.module.scss';
 
 type Filter = ReconnectStatus | 'all';
 
 const DAY_SECONDS = 86400;
+
+const STATUS_CLASS: Record<ReconnectStatus, string> = {
+  pending: styles.statusPending,
+  completed: styles.statusCompleted,
+  resolved: styles.statusResolved,
+  expired: '',
+};
 
 interface Props {
   base: string;
@@ -24,6 +32,8 @@ interface Props {
   version: number;
 }
 
+const PAGE_SIZES = [20, 50, 100];
+
 /** Reconnect requests of the last 30 days; refreshes every minute. */
 export function ReconnectRequestsTable({ base, managementKey, timeZone, version }: Props) {
   const { t } = useTranslation();
@@ -31,7 +41,10 @@ export function ReconnectRequestsTable({ base, managementKey, timeZone, version 
   const [filter, setFilter] = useState<Filter>('pending');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(PAGE_SIZES[0]);
 
   const load = useCallback(async () => {
     if (!base) return;
@@ -43,6 +56,7 @@ export function ReconnectRequestsTable({ base, managementKey, timeZone, version 
       setError(reconnectErrorMessage(err));
     } finally {
       setLoading(false);
+      setLoaded(true);
     }
   }, [base, managementKey]);
 
@@ -65,7 +79,12 @@ export function ReconnectRequestsTable({ base, managementKey, timeZone, version 
     all: t('reconnect.status_all', { defaultValue: 'All' }),
   };
   const filters: Filter[] = ['pending', 'completed', 'resolved', 'expired', 'all'];
-  const visible = filter === 'all' ? rows : rows.filter((row) => row.status === filter);
+  const matching = filter === 'all' ? rows : rows.filter((row) => row.status === filter);
+  // Same paging as the accounts list. The page is clamped when a refresh shrinks the list.
+  const totalPages = Math.max(1, Math.ceil(matching.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * pageSize;
+  const visible = matching.slice(pageStart, pageStart + pageSize);
   const count = (f: Filter) =>
     f === 'all' ? rows.length : rows.filter((row) => row.status === f).length;
 
@@ -77,56 +96,64 @@ export function ReconnectRequestsTable({ base, managementKey, timeZone, version 
 
   return (
     <div className={styles.group}>
-      <div className={styles.actions}>
-        <h4 className={styles.groupTitle}>
-          {t('reconnect.requests_title', { defaultValue: 'Reconnect requests' })}
-        </h4>
-        <span className={styles.muted}>
-          {t('reconnect.requests_hint', {
-            defaultValue: 'Last 30 days. Times in {{timeZone}}.',
-            timeZone,
-          })}
-        </span>
+      <div className={styles.tableHeader}>
+        <div className={styles.sectionHeaderText}>
+          <h4 className={styles.groupTitle}>
+            {t('reconnect.requests_title', { defaultValue: 'Reconnect Requests' })}
+          </h4>
+          <p className={styles.sectionHint}>
+            {t('reconnect.requests_hint', {
+              defaultValue: 'Last 30 days. Times in {{timeZone}}.',
+              timeZone,
+            })}
+          </p>
+        </div>
         <Button variant="ghost" size="sm" onClick={() => void load()} disabled={loading}>
           <IconRefreshCw size={14} />
-          {t('reconnect.refresh', { defaultValue: 'Refresh' })}
+          {t('common.refresh')}
         </Button>
       </div>
       <SegmentedTabs<Filter>
-        items={filters.map((f) => ({ id: f, label: `${labels[f]} ${count(f)}` }))}
+        items={filters.map((f) => ({ id: f, label: `${labels[f]} · ${count(f)}` }))}
         activeTab={filter}
-        onChange={setFilter}
+        onChange={(next) => {
+          setFilter(next);
+          setPage(1);
+        }}
         ariaLabel={t('reconnect.filter', { defaultValue: 'Filter by status' })}
       />
-      {error ? <div className={styles.errorBanner}>{error}</div> : null}
-      <div className={styles.tableWrap}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>{t('reconnect.col_email', { defaultValue: 'Email' })}</th>
-              <th>{t('reconnect.col_login', { defaultValue: 'Login' })}</th>
-              {filter === 'all' ? (
-                <th>{t('reconnect.col_status', { defaultValue: 'Status' })}</th>
-              ) : null}
-              <th>{t('reconnect.col_waiting', { defaultValue: 'Waiting for' })}</th>
-              <th>{t('reconnect.col_first', { defaultValue: 'First notified' })}</th>
-              <th>{t('reconnect.col_reminders', { defaultValue: 'Reminders' })}</th>
-              <th>
-                {filter === 'pending'
-                  ? t('reconnect.col_expires', { defaultValue: 'Link expires' })
-                  : t('reconnect.col_closed', { defaultValue: 'Closed' })}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {visible.length === 0 ? (
+      {error ? (
+        <div className={styles.errorState} role="alert">
+          <strong>{t('reconnect.load_failed', { defaultValue: 'Load failed' })}</strong>
+          <span>{error}</span>
+        </div>
+      ) : null}
+      {error && rows.length === 0 ? null : visible.length === 0 && loaded ? (
+        <div className={styles.emptyState}>
+          {t('reconnect.empty', { defaultValue: 'No reconnect requests' })}
+        </div>
+      ) : (
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead>
               <tr>
-                <td className={styles.empty} colSpan={filter === 'all' ? 7 : 6}>
-                  {t('reconnect.empty', { defaultValue: 'Nothing here.' })}
-                </td>
+                <th>{t('reconnect.col_email', { defaultValue: 'Email' })}</th>
+                <th>{t('reconnect.col_login', { defaultValue: 'Login' })}</th>
+                {filter === 'all' ? (
+                  <th>{t('reconnect.col_status', { defaultValue: 'Status' })}</th>
+                ) : null}
+                <th>{t('reconnect.col_waiting', { defaultValue: 'Waiting for' })}</th>
+                <th>{t('reconnect.col_first', { defaultValue: 'First notified' })}</th>
+                <th>{t('reconnect.col_reminders', { defaultValue: 'Reminders' })}</th>
+                <th>
+                  {filter === 'pending'
+                    ? t('reconnect.col_expires', { defaultValue: 'Link expires' })
+                    : t('reconnect.col_closed', { defaultValue: 'Closed' })}
+                </th>
               </tr>
-            ) : (
-              visible.map((row) => {
+            </thead>
+            <tbody>
+              {visible.map((row) => {
                 const waited = waitedSeconds(row);
                 const live = row.status === 'pending';
                 return (
@@ -141,13 +168,25 @@ export function ReconnectRequestsTable({ base, managementKey, timeZone, version 
                       ) : null}
                     </td>
                     <td>{providerLabel(row.provider)}</td>
-                    {filter === 'all' ? <td>{labels[row.status]}</td> : null}
+                    {filter === 'all' ? (
+                      <td>
+                        <span
+                          className={[styles.statusBadge, STATUS_CLASS[row.status]]
+                            .filter(Boolean)
+                            .join(' ')}
+                        >
+                          {labels[row.status]}
+                        </span>
+                      </td>
+                    ) : null}
                     <td
                       className={[
                         styles.waiting,
                         live && waited >= DAY_SECONDS ? styles.waitingLong : '',
                         live ? '' : styles.muted,
-                      ].join(' ')}
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
                     >
                       {formatWaiting(waited)}
                     </td>
@@ -156,11 +195,28 @@ export function ReconnectRequestsTable({ base, managementKey, timeZone, version 
                     <td>{formatInZone(live ? row.expiresAtMs : row.closedAtMs, timeZone)}</td>
                   </tr>
                 );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+              })}
+            </tbody>
+          </table>
+          <div className={styles.pagination}>
+            <PaginationControls
+              count={matching.length}
+              currentPage={currentPage}
+              totalPages={totalPages}
+              startItem={pageStart + 1}
+              endItem={pageStart + visible.length}
+              pageSize={pageSize}
+              pageSizeOptions={PAGE_SIZES}
+              onPageChange={setPage}
+              onPageSizeChange={(next) => {
+                setPageSize(next);
+                setPage(1);
+              }}
+              t={t}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

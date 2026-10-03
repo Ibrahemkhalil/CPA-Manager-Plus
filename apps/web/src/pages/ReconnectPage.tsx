@@ -1,6 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
+import {
+  CPAMP_HORIZONTAL_LOGO_ON_DARK_PNG_SRC_SET,
+  CPAMP_HORIZONTAL_LOGO_ON_DARK_PNG_URL,
+  CPAMP_HORIZONTAL_LOGO_PNG_SRC_SET,
+  CPAMP_HORIZONTAL_LOGO_PNG_URL,
+} from '@/assets/brand';
+import { AppearanceToolbar } from '@/components/common/AppearanceToolbar';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -34,6 +41,7 @@ export function ReconnectPage() {
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const pasteLabelId = useId();
 
   useEffect(() => {
     reconnectApi
@@ -95,13 +103,36 @@ export function ReconnectPage() {
     }
   };
 
-  const shell = (children: React.ReactNode) => (
+  // Same shell as the login page: centered glass card with the brand logo.
+  const shell = (children: ReactNode) => (
     <div className={styles.page}>
-      <div className={styles.card}>{children}</div>
+      <AppearanceToolbar />
+      <main className={styles.card}>
+        <div className={styles.branding}>
+          <img
+            src={CPAMP_HORIZONTAL_LOGO_PNG_URL}
+            srcSet={CPAMP_HORIZONTAL_LOGO_PNG_SRC_SET}
+            alt="CPA Manager Plus"
+            className={[styles.brandLogo, styles.brandLogoLight].join(' ')}
+          />
+          <img
+            src={CPAMP_HORIZONTAL_LOGO_ON_DARK_PNG_URL}
+            srcSet={CPAMP_HORIZONTAL_LOGO_ON_DARK_PNG_SRC_SET}
+            alt="CPA Manager Plus"
+            className={[styles.brandLogo, styles.brandLogoDark].join(' ')}
+          />
+        </div>
+        {children}
+      </main>
     </div>
   );
 
-  if (!link && !linkError) return shell(<LoadingSpinner />);
+  if (!link && !linkError)
+    return shell(
+      <div className={styles.loading}>
+        <LoadingSpinner />
+      </div>
+    );
 
   const flow = providerFlow(link?.provider ?? 'claude');
   const vars = {
@@ -182,7 +213,7 @@ export function ReconnectPage() {
             })}
           </span>
           {!attempt || attemptExpired ? (
-            <Button onClick={() => void connect()} loading={busy && !attempt}>
+            <Button fullWidth onClick={() => void connect()} loading={busy && !attempt}>
               {attemptExpired
                 ? t('reconnect_page.connect_again', { defaultValue: 'Connect again' })
                 : t('reconnect_page.connect', { defaultValue: 'Connect' })}
@@ -267,18 +298,24 @@ export function ReconnectPage() {
               </span>
             </li>
             <li className={styles.step}>
-              <span className={styles.stepTitle}>
+              <span className={styles.stepTitle} id={pasteLabelId}>
                 {t('reconnect_page.step_paste', {
                   defaultValue: '3. Copy the full address from that tab and paste it here',
                 })}
               </span>
               <Input
+                aria-labelledby={pasteLabelId}
                 value={callbackUrl}
                 onChange={(event) => setCallbackUrl(event.target.value)}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="none"
+                spellCheck={false}
                 placeholder={`${flow.callback}?code=...&state=...`}
                 disabled={!attempt || attemptExpired}
               />
               <Button
+                fullWidth
                 onClick={() => void submit()}
                 loading={busy && attempt !== null}
                 disabled={!attempt || attemptExpired || !callbackUrl.trim()}

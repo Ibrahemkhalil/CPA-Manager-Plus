@@ -3,6 +3,7 @@ import {
   formatCountdown,
   formatInZone,
   formatWaiting,
+  panelUrlFromLocation,
   providerFlow,
   providerLabel,
   timeZoneOptions,
@@ -10,8 +11,9 @@ import {
 
 describe('reconnectFormat', () => {
   it('shows the two largest units of a wait', () => {
-    expect(formatWaiting(0)).toBe('0s');
-    expect(formatWaiting(65)).toBe('1m 5s');
+    expect(formatWaiting(0)).toBe('1s');
+    expect(formatWaiting(12.7)).toBe('12s');
+    expect(formatWaiting(65)).toBe('1m 05s');
     expect(formatWaiting(4 * 3600 + 26 * 60 + 9)).toBe('4h 26m');
     expect(formatWaiting(8 * 86400 + 12 * 3600)).toBe('8d 12h');
   });
@@ -33,5 +35,19 @@ describe('reconnectFormat', () => {
     expect(timeZoneOptions()[0]).toBe('UTC');
     expect(formatInZone(Date.UTC(2026, 9, 3, 5, 0), 'Asia/Tokyo')).toBe('2026-10-03 14:00');
     expect(formatInZone(0, 'UTC')).toBe('-');
+  });
+});
+
+describe('panelUrlFromLocation', () => {
+  it('drops management.html and trailing slashes but keeps a path prefix', () => {
+    expect(
+      panelUrlFromLocation({ origin: 'https://cpamp.example.com', pathname: '/management.html' })
+    ).toBe('https://cpamp.example.com');
+    expect(panelUrlFromLocation({ origin: 'http://localhost:18317', pathname: '/' })).toBe(
+      'http://localhost:18317'
+    );
+    expect(
+      panelUrlFromLocation({ origin: 'https://example.com', pathname: '/cpamp/management.html' })
+    ).toBe('https://example.com/cpamp');
   });
 });

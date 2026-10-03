@@ -5353,7 +5353,6 @@
     "sent_reconnect": "已向 {{email}} 发送重连链接",
     "section_title": "自助重连",
     "section_hint": "当 Claude、Codex、Antigravity、xAI 或 Muse 登录只能通过重新登录恢复时，其所有者（按登录邮箱匹配）会收到一次性链接并自行完成重连。",
-    "refresh": "刷新",
     "load_failed": "加载失败",
     "enabled": "启用自助重连",
     "summary_broken": "{{count}} 个需要重连",
@@ -5374,7 +5373,6 @@
     "from_hour": "从",
     "until_hour": "至",
     "time_zone": "时区",
-    "save": "保存",
     "send_title": "发送链接",
     "login_type": "登录类型",
     "email": "邮箱",
@@ -5396,8 +5394,10 @@
     "col_reminders": "提醒次数",
     "col_expires": "链接过期",
     "col_closed": "关闭时间",
-    "empty": "暂无记录。",
-    "sent_by_admin": "（管理员发送）"
+    "empty": "暂无重连请求",
+    "sent_by_admin": "（管理员发送）",
+    "range_invalid": "{{label}} 必须是 {{min}} 到 {{max}} 之间的整数",
+    "send_failed": "发送失败"
   },
   "reconnect_page": {
     "invalid": "此重连链接无效。",

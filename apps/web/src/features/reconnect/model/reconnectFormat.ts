@@ -1,4 +1,5 @@
 import type { ReconnectProvider } from '@/services/api/reconnect';
+import { formatDurationMs } from '@/utils/usage';
 
 export const PROVIDER_LABELS: Record<ReconnectProvider, string> = {
   claude: 'Claude',
@@ -46,22 +47,12 @@ export const PROVIDER_FLOWS: Record<ReconnectProvider, ProviderFlow> = {
 export const providerFlow = (provider: string): ProviderFlow =>
   PROVIDER_FLOWS[provider as ReconnectProvider] ?? PROVIDER_FLOWS.claude;
 
-/** "3d 4h", "4h 26m", "12m 5s": the two largest units of a duration. */
-export const formatWaiting = (totalSeconds: number): string => {
-  const s = Math.max(0, Math.floor(totalSeconds));
-  const parts: Array<[number, string]> = [
-    [Math.floor(s / 86400), 'd'],
-    [Math.floor((s % 86400) / 3600), 'h'],
-    [Math.floor((s % 3600) / 60), 'm'],
-    [s % 60, 's'],
-  ];
-  const first = parts.findIndex(([value]) => value > 0);
-  if (first === -1) return '0s';
-  return parts
-    .slice(first, first + 2)
-    .map(([value, unit]) => `${value}${unit}`)
-    .join(' ');
-};
+/**
+ * "3d 4h", "4h 26m", "12m 05s": the portal's two-unit duration format, in
+ * whole seconds (at least 1s, so a fresh wait never reads as milliseconds).
+ */
+export const formatWaiting = (totalSeconds: number): string =>
+  formatDurationMs(Math.max(1, Math.floor(totalSeconds)) * 1000, { secondDecimals: 0 });
 
 /** m:ss countdown. */
 export const formatCountdown = (seconds: number): string => {
@@ -101,3 +92,10 @@ export const formatInZone = (ms: number | undefined, timeZone: string): string =
     return new Date(ms).toISOString().slice(0, 16).replace('T', ' ');
   }
 };
+
+/**
+ * The address this panel is open at, without `management.html` or the hash route:
+ * the default for the public panel URL that reconnect links are built on.
+ */
+export const panelUrlFromLocation = (location: Pick<Location, 'origin' | 'pathname'>): string =>
+  `${location.origin}${location.pathname.replace(/\/management\.html$/, '').replace(/\/+$/, '')}`;
